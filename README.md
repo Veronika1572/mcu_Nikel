@@ -221,3 +221,4 @@ To use the RISC-V compiler to build code you need to set a couple of environment
 export PICO_TOOLCHAIN_PATH=/opt/riscv/riscv-toolchain-14/
 export PICO_PLATFORM=rp2350-riscv
 ```
+# mcu_Nikel
