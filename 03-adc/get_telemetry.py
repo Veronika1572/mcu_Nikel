@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Скрипт для сбора данных с Raspberry Pi Pico (проект 03-adc)
+Скрипт для сбора телеметрии с Raspberry Pi Pico (проект 03-adc)
+Использует встроенную телеметрию устройства (команды tm_start/tm_stop)
 Собирает напряжение на GPIO 26 и температуру чипа, строит графики
 """
 
@@ -13,27 +14,44 @@ import sys
 
 def read_value(ser):
     """
-    Читает строку из последовательного порта и преобразует её в float
+    Читает строку из последовательного порта и преобразует её в два float
+    Формат строки: "uptime voltage temperature"
     Игнорирует ошибки преобразования (например, пустые строки или служебные сообщения)
     """
     while True:
         try:
-            # Читаем строку, декодируем из ASCII
+            # Читаем строку, декодируем из ASCII, удаляем пробельные символы
             line = ser.readline().decode('ascii').strip()
             
             # Пропускаем пустые строки
             if not line:
                 continue
                 
-            # Пробуем преобразовать в float
-            value = float(line)
-            return value
-        except ValueError:
+            # Разделяем строку по пробелам и преобразуем в float
+            # Ожидаемый формат: "uptime voltage temperature"
+            parts = line.split()
+            if len(parts) >= 3:
+                # Берем напряжение (второе значение) и температуру (третье значение)
+                # uptime нас не интересует для графика
+                voltage = float(parts[1])
+                temperature = float(parts[2])
+                return voltage, temperature
+            else:
+                # Если строка не содержит три значения, пробуем преобразовать всю строку
+                # (для обратной совместимости с одиночными командами)
+                value = float(line)
+                return value, 0.0
+                
+        except ValueError as e:
             # Если не удалось преобразовать, выводим сообщение и продолжаем
-            print(f"  (ignored: '{line}')", file=sys.stderr)
+            print(f"  (ignored: '{line}' - {e})", file=sys.stderr)
             continue
         except UnicodeDecodeError:
             # Ошибка декодирования - просто пропускаем
+            continue
+        except Exception as e:
+            # Другие ошибки
+            print(f"  (error: {e})", file=sys.stderr)
             continue
 
 def main():
@@ -41,19 +59,18 @@ def main():
     
     # === НАСТРОЙКИ ===
     # Укажите ваш COM-порт (посмотрите в Диспетчере устройств)
-    PORT = 'COM6'
+    PORT = 'COM6'  # ИЗМЕНИТЕ НА ВАШ ПОРТ!
     BAUDRATE = 115200
-    MEASUREMENT_INTERVAL = 0.1  # Интервал между измерениями в секундах
+    COLLECTION_TIME = 30  # Время сбора данных в секундах
     # =================
     
     print("=" * 60)
-    print("Скрипт сбора данных с Raspberry Pi Pico (03-adc)")
+    print("Скрипт сбора телеметрии с Raspberry Pi Pico (03-adc)")
     print("=" * 60)
     print(f"Порт: {PORT}, скорость: {BAUDRATE}")
-    print(f"Интервал измерений: {MEASUREMENT_INTERVAL} с")
-    print("Команды устройству: get_adc, get_temp")
+    print(f"Время сбора: {COLLECTION_TIME} с")
     print("-" * 60)
-    print("Для остановки нажмите Ctrl+C")
+    print("Для остановки раньше времени нажмите Ctrl+C")
     print("-" * 60)
     
     # Создаем объект для работы с последовательным портом
@@ -79,22 +96,25 @@ def main():
     measurement_count = 0
     
     try:
-        # Бесконечный цикл сбора данных
-        while True:
+        # Запускаем телеметрию на устройстве
+        print("🔄 Запуск телеметрии...")
+        ser.write("tm_start\n".encode('ascii'))
+        
+        # Даем устройству время на запуск
+        time.sleep(0.5)
+        
+        print(f"📊 Сбор данных в течение {COLLECTION_TIME} секунд...")
+        print("-" * 60)
+        
+        # Собираем данные в течение заданного времени
+        end_time = time.time() + COLLECTION_TIME
+        
+        while time.time() < end_time:
             # Фиксируем текущее время относительно старта
             ts = time.time() - start_ts
             
-            # ===== ИЗМЕРЕНИЕ НАПРЯЖЕНИЯ =====
-            # Отправляем команду get_adc
-            ser.write("get_adc\n".encode('ascii'))
-            # Читаем ответ (напряжение в вольтах)
-            voltage_V = read_value(ser)
-            
-            # ===== ИЗМЕРЕНИЕ ТЕМПЕРАТУРЫ =====
-            # Отправляем команду get_temp
-            ser.write("get_temp\n".encode('ascii'))
-            # Читаем ответ (температура в градусах)
-            temp_C = read_value(ser)
+            # Читаем напряжение и температуру из телеметрии
+            voltage_V, temp_C = read_value(ser)
             
             # Сохраняем результаты
             measure_ts.append(ts)
@@ -109,8 +129,8 @@ def main():
                   f"U={voltage_V:6.3f} В | "
                   f"T={temp_C:6.2f} °C")
             
-            # Задержка перед следующим измерением
-            time.sleep(MEASUREMENT_INTERVAL)
+            # Небольшая задерга, чтобы не загружать процессор
+            time.sleep(0.01)
             
     except KeyboardInterrupt:
         # Пользователь нажал Ctrl+C
@@ -122,6 +142,15 @@ def main():
         
     finally:
         # Этот блок выполняется всегда, даже при ошибках
+        
+        # Останавливаем телеметрию на устройстве
+        print("🔄 Остановка телеметрии...")
+        try:
+            ser.write("tm_stop\n".encode('ascii'))
+            time.sleep(0.1)
+        except:
+            pass
+            
         print(f"📊 Всего измерений: {measurement_count}")
         print("🔄 Закрытие порта...")
         ser.close()
@@ -201,7 +230,7 @@ def save_data(timestamps, voltages, temperatures):
     from datetime import datetime
     
     # Генерируем имя файла с текущей датой и временем
-    filename = f"adc_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"telemetry_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     
     try:
         with open(filename, 'w', newline='', encoding='utf-8') as csvfile:

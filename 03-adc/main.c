@@ -12,12 +12,12 @@
 #define DEVICE_VERSION "v0.10.0"
 
 // ПРОТОТИПЫ ФУНКЦИЙ
+void help_callback(const char* args);
 void version_callback(const char* args);
 void led_on_callback(const char* args);
 void led_off_callback(const char* args);
 void led_blink_callback(const char* args);
 void led_blink_set_period_ms_callback(const char* args);
-void help_callback(const char* args);
 void mem_read_callback(const char* args);
 void mem_write_callback(const char* args);
 void adc_read_callback(const char* args);
@@ -43,7 +43,176 @@ api_t device_api[] =
     {NULL, NULL, NULL},
 };
 
-// ... (все существующие callback'и остаются без изменений)
+// Колбэк для команды help
+void help_callback(const char* args)
+{
+    printf("\n========================================\n");
+    printf("Available commands:\n");
+    printf("========================================\n");
+    
+    for (int i = 0; device_api[i].command_name != NULL; i++)
+    {
+        printf("  %-12s - %s\n", device_api[i].command_name, device_api[i].command_help);
+    }
+    
+    printf("========================================\n");
+    
+    if (args && args[0] != '\0')
+    {
+        printf("Note: 'help' command ignores arguments: '%s'\n", args);
+    }
+}
+
+// Колбэк для команды version
+void version_callback(const char* args)
+{
+    printf("device name: '%s', firmware version: %s\n", DEVICE_NAME, DEVICE_VERSION);
+    
+    if (args && args[0] != '\0')
+    {
+        printf("Command arguments: '%s'\n", args);
+    }
+}
+
+// Колбэк для команды on (включить светодиод)
+void led_on_callback(const char* args)
+{
+    led_task_state_set(LED_STATE_ON);
+    printf("LED turned ON\n");
+    
+    if (args && args[0] != '\0')
+    {
+        printf("Arguments ignored: '%s'\n", args);
+    }
+}
+
+// Колбэк для команды off (выключить светодиод)
+void led_off_callback(const char* args)
+{
+    led_task_state_set(LED_STATE_OFF);
+    printf("LED turned OFF\n");
+    
+    if (args && args[0] != '\0')
+    {
+        printf("Arguments ignored: '%s'\n", args);
+    }
+}
+
+// Колбэк для команды blink (мигать светодиодом)
+void led_blink_callback(const char* args)
+{
+    led_task_state_set(LED_STATE_BLINK);
+    printf("LED blinking started\n");
+    
+    if (args && args[0] != '\0')
+    {
+        printf("Arguments ignored: '%s' (use 'set_period' command to change period)\n", args);
+    }
+}
+
+// Колбэк для установки периода мигания
+void led_blink_set_period_ms_callback(const char* args)
+{
+    if (!args || args[0] == '\0')
+    {
+        printf("Error: period not specified. Usage: set_period <milliseconds>\n");
+        return;
+    }
+    
+    uint period_ms = 0;
+    int parsed = sscanf(args, "%u", &period_ms);
+    
+    if (parsed != 1 || period_ms == 0)
+    {
+        printf("Error: invalid period '%s'. Please specify positive integer.\n", args);
+        return;
+    }
+    
+    led_task_set_blink_period_ms(period_ms);
+    printf("Period set to %d ms. Use 'blink' command to start blinking.\n", period_ms);
+}
+
+// Колбэк для чтения памяти
+void mem_read_callback(const char* args)
+{
+    if (!args || args[0] == '\0')
+    {
+        printf("Error: address not specified. Usage: mem <hex_address>\n");
+        printf("Example: mem 0x20000000\n");
+        return;
+    }
+    
+    uint32_t addr = 0;
+    int parsed = sscanf(args, "%x", &addr);
+    
+    if (parsed != 1)
+    {
+        printf("Error: invalid address '%s'. Please specify hex value.\n", args);
+        return;
+    }
+    
+    volatile uint32_t* ptr = (volatile uint32_t*)addr;
+    uint32_t value = *ptr;
+    
+    printf("Memory read:\n");
+    printf("  Address: 0x%08X\n", addr);
+    printf("  Value:   0x%08X (decimal: %u)\n", value, value);
+}
+
+// Колбэк для записи в память
+void mem_write_callback(const char* args)
+{
+    if (!args || args[0] == '\0')
+    {
+        printf("Error: arguments not specified. Usage: wmem <hex_address> <hex_value>\n");
+        printf("Example: wmem 0xd0000014 0x02000000\n");
+        return;
+    }
+    
+    uint32_t addr = 0;
+    uint32_t value = 0;
+    int parsed = sscanf(args, "%x %x", &addr, &value);
+    
+    if (parsed != 2)
+    {
+        printf("Error: invalid arguments '%s'. Need address and value in hex.\n", args);
+        return;
+    }
+    
+    volatile uint32_t* ptr = (volatile uint32_t*)addr;
+    *ptr = value;
+    
+    uint32_t read_back = *ptr;
+    
+    printf("Memory write:\n");
+    printf("  Address: 0x%08X\n", addr);
+    printf("  Written: 0x%08X\n", value);
+    printf("  Read back: 0x%08X\n", read_back);
+}
+
+// Колбэк для чтения АЦП
+void adc_read_callback(const char* args)
+{
+    float voltage = adc_task_read_voltage();
+    printf("%f\n", voltage);
+    
+    if (args && args[0] != '\0')
+    {
+        // Игнорируем аргументы
+    }
+}
+
+// Колбэк для чтения температуры
+void temp_read_callback(const char* args)
+{
+    float temperature = adc_task_read_temperature();
+    printf("%f\n", temperature);
+    
+    if (args && args[0] != '\0')
+    {
+        // Игнорируем аргументы
+    }
+}
 
 // НОВЫЙ КОЛБЭК: запуск телеметрии
 void tm_start_callback(const char* args)
